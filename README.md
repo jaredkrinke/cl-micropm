@@ -121,7 +121,7 @@ $ echo $CL_SOURCE_REGISTRY
 ```
 
 ```lisp
-CL-USER> (si:setenv "CL_SOURCE_REGISTRY" "/home/risto/git/lisp/lqlite/:/home/risto/git/lisp/lqlite/lisp-systems//")
+CL-USER> (setf (uiop:getenv "CL_SOURCE_REGISTRY") "/home/risto/git/lisp/lqlite/:/home/risto/git/lisp/lqlite/lisp-systems//")
 "/home/risto/git/lisp/lqlite/:/home/risto/git/lisp/lqlite/lisp-systems//"
 CL-USER> (uiop:getenv "CL_SOURCE_REGISTRY")
 "/home/risto/git/lisp/lqlite/:/home/risto/git/lisp/lqlite/lisp-systems//"
