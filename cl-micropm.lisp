@@ -18,14 +18,16 @@
 
   ;; Quicklisp systems index (obtained from a generated file from Dockerfile)
   (unless (boundp '*systems-alist*)
-    (generate-quicklisp-index))
+    (defvar *systems-alist* (generate-quicklisp-index)))
 
   ;; Clone the dependencies listed in the system
   (add-local-project-to-asdf)
-  (loop for i in (locate-dependencies system-name) do
+  (loop for dependency-name in (locate-dependencies system-name) do
     (if ignore-error
-        (ignore-errors (clone-dependencies system-name *systems-alist* :include-system t))
-        (clone-dependencies system-name *systems-alist* :include-system t))))
+        (progn
+          (format t "Cloning ~a...~%" dependency-name)
+          (ignore-errors (clone-dependencies dependency-name *systems-alist*)))
+        (clone-dependencies dependency-name *systems-alist*))))
 
 #+nil(init "micropm")
 
@@ -34,7 +36,7 @@
   (setf asdf:*central-registry* (cons (uiop:getcwd) (list-lisp-systems-paths))))
 
 (defun add-quicklisp-projects-submodule ()
-  (uiop:run-program "git submodule add https://github.com/quicklisp/quicklisp-projects.git"))
+  (uiop:run-program "git submodule add -f https://github.com/quicklisp/quicklisp-projects.git"))
 
 (defun add-local-project-to-asdf ()
   "Configures ASDF to find the project in the current working directory"
@@ -194,7 +196,7 @@ RUN sbcl --non-interactive \\
 (defun clone-dependency (system-name source &key (clone nil))
   (let ((url (second source))
         (dir (uiop:merge-pathnames* *lisp-systems-dir* system-name))
-        (git-cmd (if clone "clone" "submodule add")))
+        (git-cmd (if clone "clone" "submodule add -f")))
     (cond
       ((http-get-source-p source)
        (uiop:run-program (format nil "wget ~a ~a" url dir) :output t))
@@ -206,6 +208,7 @@ RUN sbcl --non-interactive \\
       (t (error (format nil "Unimplemented for source: ~a" source))))))
 
 (defun clone-dependencies (system systems-alist &key (include-system t) (clone nil))
+  "Clones the dependencies of a Quicklisp system"
   (let ((dependencies (get-dependencies system systems-alist)))
     (loop for system-name in dependencies do
       (setf system-name (string-downcase system-name))
