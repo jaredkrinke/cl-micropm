@@ -3,12 +3,13 @@
 
 (in-package :micropm)
 
-(defvar *lisp-systems-dir* #P"./lisp-systems")
+(defvar *lisp-systems-dir* #P"./lisp-systems/")
 
 (defvar *quicklisp-projects-dir*
   (uiop:merge-pathnames* #P"quicklisp-projects/projects/" (uiop:getcwd)))
 
 (defun init (system-name)
+  ;; Add quicklisp-projects submodule
   (add-local-project-to-asdf)
   (loop for i in (locate-dependencies system-name) do
     (print i)))
@@ -27,7 +28,7 @@
 (defun fetch-system-quicklisp-source (system-name)
   "Fetches the quicklisp source for the given system"
   (let ((system-source
-          (uiop:merge-pathnames* (uiop:strcat system-name "/source.txt")
+          (uiop:merge-pathnames* (format nil "~a/source.txt" (string-downcase system-name))
                                  *quicklisp-projects-dir*)))
     (map 'list (lambda (source) (uiop:split-string source :separator " "))
          (uiop:read-file-lines system-source))))
@@ -126,34 +127,69 @@ RUN sbcl --non-interactive \\
 
 #+nil(get-dependencies 'cffi *systems-alist*)
 
-#|
-branched-git
-cvs
-darcs
-ediware-http
-git
-http
-https
-kmr-git
-latest-github-release
-LATEST-GITHUB-RELEASE
-latest-github-tag
-LATEST-GITHUB-TAG
-latest-gitlab-release
-mercurial
-single-file
-svn
-tagged-git
-|#
+(defconstant +source-types+
+  '(branched-git
+    cvs
+    darcs
+    ediware-http
+    git
+    http
+    https
+    kmr-git
+    latest-github-release
+    latest-github-tag
+    latest-gitlab-release
+    mercurial
+    single-file
+    svn
+    tagged-git))
 
-(defun clone-dependencies (system systems-alist)
+(defun get-source-type (source)
+  (read-from-string (first source)))
+
+(defun ediware-p (source)
+  "Git source: https://github.com/edicl/"
+  (equal (get-source-type source) 'ediware-http))
+
+(defun kmr-p (source)
+  "Git source: http://git.kpe.io/"
+  (equal (get-source-type source) 'kmr-git))
+
+(defun http-get-source-p (source)
+  (member (get-source-type source) '(http https single-file)))
+
+(defun git-clone-source-p (source)
+  (member (get-source-type source)
+          '(git latest-github-release latest-github-tag latest-gitlab-release)))
+
+(defun git-clone-tagged-source-p (source)
+  (member (get-source-type source) '(branched-git tagged-git)))
+
+(defun clone-dependency (system-name source &key (clone nil))
+  (let ((url (second source))
+        (dir (uiop:merge-pathnames* *lisp-systems-dir* system-name))
+        (git-cmd (if clone "clone" "submodule add")))
+    (cond
+      ((http-get-source-p source)
+       (uiop:run-program (format nil "wget ~a ~a" url dir) :output t))
+      ((git-clone-source-p source)
+       (uiop:run-program (format nil "git ~a ~a ~a" git-cmd url dir) :output t))
+      ((git-clone-tagged-source-p source)
+       (let ((tag (third source)))
+         (uiop:run-program (format nil "git ~a ~a#~a ~a" git-cmd url tag dir) :output t)))
+      (t (error (format nil "Unimplemented for source: ~a" source))))))
+
+(defun clone-dependencies (system systems-alist &key (clone nil))
   (let ((dependencies (get-dependencies system systems-alist)))
-    ()
-    ))
+    (loop for system-name in dependencies do
+      (setf system-name (string-downcase system-name))
+      (clone-dependency system-name
+                        (first (fetch-system-quicklisp-source system-name))
+                        :clone clone))))
 
 (defun add-dependency (system-name)
   "Configures ASDF to include the dependency"
-  (declaime (ignore system-name)))
+  (declaim (ignore system-name)))
 
 (defun setup-asdf-central-registry (lisp-systems-paths)
   "Setup ASDF to read the systems already setup in lisp-systems dir"
