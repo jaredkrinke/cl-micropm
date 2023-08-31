@@ -1,5 +1,6 @@
 (defpackage micropm
-  (:use :cl))
+  (:use :cl)
+  (:export #:setup #:setup-asdf-registry))
 
 (in-package :micropm)
 
