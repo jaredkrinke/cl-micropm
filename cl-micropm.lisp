@@ -30,8 +30,6 @@
           (ignore-errors (clone-dependencies dependency-name *systems-alist*)))
         (clone-dependencies dependency-name *systems-alist*))))
 
-#+nil(init "micropm")
-
 (defun setup-asdf-registry ()
   "Initializes the ASDF registry with the existing dependencies in *lisp-systems-dir*"
   (setf asdf:*central-registry* (cons (uiop:getcwd) (list-lisp-systems-paths))))
@@ -56,23 +54,7 @@
     (map 'list (lambda (source) (uiop:split-string source :separator " "))
          (uiop:read-file-lines system-source))))
 
-#+nil(fetch-system-quicklisp-source "xmls")
-
 (defvar *quicklisp-container-name* "quicklisp")
-
-#+nil(define-condition progress (condition)
-  ((topic :initarg :topic)
-   (msg :initarg :msg)))
-
-#+nil(defmacro with-progress (&body body)
-  `(handler-bind
-    ((progress #'(lambda (condition)
-      (with-slots (topic msg) condition
-        (format t "~&* ~a: ~a" topic msg))
-      (continue))))
-     (progn ,@body)))
-
-#+nil(with-progress (build-quicklisp-image))
 
 (defconstant *dockerfile*
   "FROM debian:bullseye-slim
@@ -134,8 +116,6 @@ RUN sbcl --non-interactive \\
           when (and (eql (first x) (second x)) (eql (first x) (third x)))
             collect (cddr x))))
 
-#+nil(defvar *systems-alist* (generate-quicklisp-index))
-
 (defun micropm::get-deps (system alist)
   "Recursively finds all of the dependencies for the system"
   (let* ((system-name (intern (string-upcase system)))
@@ -150,26 +130,10 @@ RUN sbcl --non-interactive \\
 (defun get-dependencies (system systems-alist)
   (let ((system-name (intern (string-upcase system))))
     (loop for x in (get-deps system-name systems-alist)
-          when (not (member x `(,system-name uiop asdf))) collect x)))
-
-#+nil(get-dependencies 'cffi *systems-alist*)
-
-#+nil(defconstant +source-types+
-  '(branched-git
-    cvs
-    darcs
-    ediware-http
-    git
-    http
-    https
-    kmr-git
-    latest-github-release
-    latest-github-tag
-    latest-gitlab-release
-    mercurial
-    single-file
-    svn
-    tagged-git))
+          when (not (member-if
+                     (lambda (e) (equal (symbol-name x) e))
+                     `(,(string-upcase system) "UIOP" "ASDF")))
+            collect x)))
 
 (defun get-source-type (source)
   (first source))
@@ -233,7 +197,3 @@ RUN sbcl --non-interactive \\
   "Lists the paths of the dependencies in lisp-systems"
   (let ((dir (uiop:merge-pathnames* *lisp-systems-dir* (uiop:getcwd))))
     (uiop:subdirectories dir)))
-
-#+nil(push
-      (uiop:strcat (uiop:native-namestring (uiop:getcwd)) "lisp-systems/babel/")
-      asdf:*central-registry*)
