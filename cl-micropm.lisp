@@ -1,46 +1,33 @@
 (defpackage micropm
   (:use :cl)
-  (:export #:setup #:setup-asdf-registry))
+  (:export #:setup))
 
 (in-package :micropm)
 
-(require 'asdf)
+;; Use CL_ROOT for CL projects root (or parent directory, if not specified)
+(defvar *root-dir* (let ((cl-root (uiop:getenv "CL_ROOT")))
+		     (if cl-root
+			 (make-pathname :directory cl-root)
+			 (uiop:merge-pathnames* "../" (uiop:getcwd)))))
 
-(defvar *lisp-systems-dir* #P"./lisp-systems/")
+;; Store dependencies in "deps/"
+(defvar *deps-dir* (uiop:merge-pathnames* "deps/" *root-dir*))
 
-(defvar *quicklisp-projects-dir*
-  (uiop:merge-pathnames* #P"quicklisp-projects/projects/" (uiop:getcwd)))
+;; Try to find cl-micropm (TODO: actual algorithm)
+(defvar *micropm-dir* (uiop:merge-pathnames* "cl-micropm/" *root-dir*))
+(defvar *quicklisp-projects-dir* (uiop:merge-pathnames* "quicklisp-projects/projects/" *micropm-dir*))
 
-(defun setup (system-name &key (ignore-error t))
+(defun setup (system-name &key dry-run)
   "Sets up micropm and the project's dependencies"
-  ;; Quicklisp sources (obtained from the quicklisp-projects repo)
-  (unless (uiop:directory-exists-p *quicklisp-projects-dir*)
-    (add-quicklisp-projects-submodule))
+  (ensure-directories-exist *deps-dir*)
 
   ;; Quicklisp systems index (obtained from a generated file from Dockerfile)
   (unless (boundp '*systems-alist*)
     (defvar *systems-alist* (generate-quicklisp-index)))
 
   ;; Clone the dependencies listed in the system
-  (add-local-project-to-asdf)
   (loop for dependency-name in (locate-dependencies system-name) do
-    (if ignore-error
-        (progn
-          (format t "Cloning ~a...~%" dependency-name)
-          (ignore-errors (clone-dependencies dependency-name *systems-alist*)))
-        (clone-dependencies dependency-name *systems-alist*))))
-
-(defun setup-asdf-registry ()
-  "Initializes the ASDF registry with the existing dependencies in *lisp-systems-dir*"
-  (setf asdf:*central-registry* (cons (uiop:getcwd) (list-lisp-systems-paths))))
-
-(defun add-quicklisp-projects-submodule ()
-  (uiop:run-program "git submodule add -f https://github.com/quicklisp/quicklisp-projects.git"))
-
-(defun add-local-project-to-asdf ()
-  "Configures ASDF to find the project in the current working directory"
-  (when (not (find-if (lambda (e) (equal e (uiop:getcwd))) asdf:*central-registry*))
-    (push (uiop:getcwd) asdf:*central-registry*)))
+    (clone-dependencies dependency-name *systems-alist* :dry-run dry-run)))
 
 (defun locate-dependencies (system-name)
   "Locates the dependencies of system-name"
@@ -54,69 +41,30 @@
     (map 'list (lambda (source) (uiop:split-string source :separator " "))
          (uiop:read-file-lines system-source))))
 
-(defvar *quicklisp-container-name* "quicklisp")
+(defun split-sequence (sequence delimiter)
+  "Splits a sequence by delimiter (which is then omitted)"
+  (loop for i = 0 then (1+ j)
+	for j = (position delimiter sequence :start i)
+	collect (subseq sequence i j)
+	while j))
 
-(defconstant *dockerfile*
-  "FROM debian:bullseye-slim
-RUN apt-get update && apt-get install -y sbcl curl gnupg
-RUN useradd -ms /bin/bash lisp
-USER lisp
-WORKDIR /home/lisp
-
-# Setup quicklisp
-RUN curl -O https://beta.quicklisp.org/quicklisp.lisp
-RUN curl -O https://beta.quicklisp.org/quicklisp.lisp.asc
-RUN curl -O https://beta.quicklisp.org/release-key.txt
-RUN gpg --import release-key.txt
-RUN gpg --verify quicklisp.lisp.asc quicklisp.lisp
-RUN sbcl --non-interactive \\
-       --load quicklisp.lisp \\
-       --eval '(quicklisp-quickstart:install)' \\
-       --eval '(ql::without-prompting (ql:add-to-init-file))'")
-
-(defun micropm::build-quicklisp-image ()
-  "Builds an OCI container with quicklisp installed inside"
-  ;; https://github.com/quicklisp/quicklisp-projects
-  #+nil(signal 'progress :topic :build-quicklisp :msg "Building quicklisp image...")
-  (multiple-value-bind (output err-output status-code)
-      (uiop:run-program
-       (format nil "podman build -t ~a -" *quicklisp-container-name*)
-       :input
-       (make-string-input-stream *dockerfile*)
-       :output t
-       :err-output t
-       :ignore-error-status t)
-    (declare (ignore output err-output))
-    #+nil(signal 'progress :topic :build-quicklisp :msg (format nil "Command exited (~d)" status-code))
-    status-code))
-
-(defun micropm::quicklisp-image-exists-p ()
-  (multiple-value-bind (output err-output status-code)
-      (uiop:run-program (format nil "podman inspect --type=image ~a" *quicklisp-container-name*)
-                        :ignore-error-status t)
-    (declare (ignore output err-output))
-    (if (= status-code 0) t nil)))
+(defun split-string-on-spaces (sequence)
+  "Splits a string into words delimited by a single space character"
+  (split-sequence sequence #\Space))
 
 (defun generate-quicklisp-index ()
   "Generates the quicklisp index"
   ;; https://github.com/quicklisp/quicklisp-controller/blob/master/indexes.lisp#L162
-  (when (not (quicklisp-image-exists-p))
-    (build-quicklisp-image))
-
-  (let* ((systems-path "/home/lisp/quicklisp/dists/quicklisp/systems.txt")
-         (systems (uiop:run-program
-                   (format nil
-                           "podman run --rm --entrypoint cat ~a ~a | tail -n +2 | sed -e '1i(' -e '$a)' -e 's/^/(/g' -e 's/$/)/g'"
-                           *quicklisp-container-name*
-                           systems-path)
-                   :output '(:string :stripped t)
-                   :ignore-error-status t)))
-    (loop for x in (read-from-string systems)
-          ;; Just get the main system for a project, and it's dependencies
-          when (and (eql (first x) (second x)) (eql (first x) (third x)))
+  (let* ((systems-path (uiop:merge-pathnames* "systems.txt" *micropm-dir*))
+	 (systems-lines (cdr (uiop:read-file-lines systems-path)))
+         (systems (loop for line in systems-lines
+			collect (split-string-on-spaces line))))
+    (loop for x in systems
+          ;; Just get the main system for a project, and its dependencies
+          when (and (equal (first x) (second x)) (equal (first x) (third x)))
             collect (cddr x))))
 
-(defun micropm::get-deps (system alist)
+(defun get-deps (system alist)
   "Recursively finds all of the dependencies for the system"
   (let* ((system-name (intern (string-upcase system)))
          (dependencies
@@ -129,6 +77,7 @@ RUN sbcl --non-interactive \\
 
 (defun get-dependencies (system systems-alist)
   (let ((system-name (intern (string-upcase system))))
+    ;; Filter out ASDF and UIOP since they come bundled with the Common Lisp implementation
     (loop for x in (get-deps system-name systems-alist)
           when (not (member-if
                      (lambda (e) (equal (symbol-name x) e))
@@ -138,18 +87,12 @@ RUN sbcl --non-interactive \\
 (defun get-source-type (source)
   (first source))
 
-(defun ediware-p (source)
-  "Git source: https://github.com/edicl/"
-  (equal (get-source-type source) "ediware-http"))
-
-(defun kmr-p (source)
-  "Git source: http://git.kpe.io/"
-  (equal (get-source-type source) "kmr-git"))
-
+;; TODO: Always use HTTP!
 (defun http-get-source-p (source)
   (member-if (lambda (x) (equal (get-source-type source) x))
              '("http" "https" "single-file")))
 
+;; TODO: Is this encrypted? If not, use an encrypted version!
 (defun git-clone-source-p (source)
   (member-if (lambda (x) (equal (get-source-type source) x))
              '("git" "latest-github-release" "latest-github-tag" "latest-gitlab-release")))
@@ -158,42 +101,29 @@ RUN sbcl --non-interactive \\
   (member-if (lambda (x) (equal (get-source-type source) x))
              '("branched-git" "tagged-git")))
 
-(defun clone-dependency (system-name source &key (clone nil))
-  (let ((url (second source))
-        (dir (uiop:merge-pathnames* *lisp-systems-dir* system-name))
-        (git-cmd (if clone "clone" "submodule add -f")))
-    (cond
-      ((http-get-source-p source)
-       (uiop:run-program (format nil "wget ~a ~a" url dir) :output t))
-      ((git-clone-source-p source)
-       (uiop:run-program (format nil "git ~a ~a ~a" git-cmd url dir) :output t))
-      ((git-clone-tagged-source-p source)
-       (let ((tag (third source)))
-         (uiop:run-program (format nil "git ~a ~a#~a ~a" git-cmd url tag dir) :output t)))
-      (t (error (format nil "Unimplemented for source: ~a" source))))))
+(defun clone-dependency (system-name source &key dry-run)
+  (flet ((run-command (command) (if dry-run
+				    (format nil "~a~%" command)
+				    (uiop:run-program command :output t))))
+    (let ((url (second source))
+          (dir (uiop:merge-pathnames* *deps-dir* system-name)))
+      (unless (uiop:directory-exists-p dir)
+	(format t "Cloning ~a...~%" system-name)
+	(cond
+	  ((http-get-source-p source)
+	   (run-command (format nil "wget ~a ~a" url dir)))
+	  ((git-clone-source-p source)
+	   (run-command (format nil "git clone ~a ~a" url dir)))
+	  ((git-clone-tagged-source-p source)
+	   (let ((tag (third source)))
+             (run-command (format nil "git clone ~a#~a ~a" url tag dir))))
+	  (t (error (format nil "Unimplemented for source: ~a" source))))))))
 
-(defun clone-dependencies (system systems-alist &key (include-system t) (clone nil))
+(defun clone-dependencies (system systems-alist &key dry-run)
   "Clones the dependencies of a Quicklisp system"
   (let ((dependencies (get-dependencies system systems-alist)))
     (loop for system-name in dependencies do
       (setf system-name (string-downcase system-name))
       (clone-dependency system-name
                         (first (fetch-system-quicklisp-source system-name))
-                        :clone clone))
-    (when include-system
-      (clone-dependency system
-                        (first (fetch-system-quicklisp-source system))
-                        :clone clone))))
-
-(defun add-dependency (system-name)
-  "Configures ASDF to include the dependency"
-  (declaim (ignore system-name)))
-
-(defun setup-asdf-central-registry (lisp-systems-paths)
-  "Setup ASDF to read the systems already setup in lisp-systems dir"
-  (setf asdf:*central-registry* lisp-systems-paths))
-
-(defun list-lisp-systems-paths ()
-  "Lists the paths of the dependencies in lisp-systems"
-  (let ((dir (uiop:merge-pathnames* *lisp-systems-dir* (uiop:getcwd))))
-    (uiop:subdirectories dir)))
+			:dry-run dry-run))))
