@@ -21,7 +21,7 @@
   "Sets up micropm and the project's dependencies"
   (ensure-directories-exist *deps-dir*)
 
-  ;; Quicklisp systems index (obtained from a generated file from Dockerfile)
+  ;; Quicklisp systems index (obtained from systems.txt)
   (unless (boundp '*systems-alist*)
     (defvar *systems-alist* (generate-quicklisp-index)))
 
@@ -87,7 +87,7 @@
 (defun get-source-type (source)
   (first source))
 
-;; TODO: Always use HTTP!
+;; TODO: Always use HTTPS!
 (defun http-get-source-p (source)
   (member-if (lambda (x) (equal (get-source-type source) x))
              '("http" "https" "single-file")))
