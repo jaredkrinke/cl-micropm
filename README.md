@@ -1,33 +1,12 @@
 # cl-micropm
 
-A very minimalist "package manager" for Common Lisp in under 200 LOC.
+A very minimalist "package manager" for Common Lisp in under 150 LOC.
 
 
 ## How it works
 
-1. Load `cl-micropm.lisp`. Since it's a single file, you don't need to have ASDF
-   load the system definition, but it's there if you need it.
-
-2. Run `(micropm:setup <your-system-name>)`. It doesn't directly use quicklisp,
-   but this will fetch the quicklisp system sources and build the quicklisp
-   dependency index, and then fetch the system dependencies using these data. By
-   default, it will create git submodules in the `lisp-systems` folder.
-
-3. Tweak the `lisp-systems` to your needs, whether you need to freeze a
-   dependency on a particular branch or commit, etc.
-
-Once all your deps are setup in `lisp-systems`, you can just run the normal
-flow with `(micropm:setup-asdf-registry)`.
-
-You can also skip `(micropm:setup <your-system-name>)` and just manually add the
-deps into `lisp-systems` if you want to do that, by reading the quicklisp
-dependency index.
-
-**Note**: The old version used an `.envrc` file and pulled the dependencies from
-quicklisp in a Docker container. See the `old` branch if you want to use that
-instead.
-
-
+1. Load `cl-micropm.lisp`.
+2. Run `(micropm:setup <your-system-name>)`. It uses a snapshot of Quicklisp's dependency index to fetch system dependencies. By default, it will create git submodules in `../deps/`. Use `:clone t` to clone instead of creating submodules and `:dry-run t` to do a "dry run" (print commands that will be run, but don't actually run them).
 
 ## Goals
 

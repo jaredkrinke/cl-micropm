@@ -17,7 +17,7 @@
 (defvar *micropm-dir* (uiop:merge-pathnames* "cl-micropm/" *root-dir*))
 (defvar *quicklisp-projects-dir* (uiop:merge-pathnames* "quicklisp-projects/projects/" *micropm-dir*))
 
-(defun setup (system-name &key (clone t) dry-run)
+(defun setup (system-name &key clone dry-run)
   "Sets up micropm and the project's dependencies"
   (ensure-directories-exist *deps-dir*)
 
