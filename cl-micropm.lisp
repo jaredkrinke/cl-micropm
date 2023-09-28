@@ -17,7 +17,7 @@
 (defvar *micropm-dir* (uiop:merge-pathnames* "cl-micropm/" *root-dir*))
 (defvar *quicklisp-projects-dir* (uiop:merge-pathnames* "quicklisp-projects/projects/" *micropm-dir*))
 
-(defun setup (system-name &key dry-run)
+(defun setup (system-name &key (clone t) dry-run)
   "Sets up micropm and the project's dependencies"
   (ensure-directories-exist *deps-dir*)
 
@@ -27,7 +27,7 @@
 
   ;; Clone the dependencies listed in the system
   (loop for dependency-name in (locate-dependencies system-name) do
-    (clone-dependencies dependency-name *systems-alist* :dry-run dry-run)))
+    (clone-dependencies dependency-name *systems-alist* :clone clone :dry-run dry-run)))
 
 (defun locate-dependencies (system-name)
   "Locates the dependencies of system-name"
@@ -101,29 +101,31 @@
   (member-if (lambda (x) (equal (get-source-type source) x))
              '("branched-git" "tagged-git")))
 
-(defun clone-dependency (system-name source &key dry-run)
+(defun clone-dependency (system-name source &key clone dry-run)
   (flet ((run-command (command) (if dry-run
-				    (format nil "~a~%" command)
+				    (format t "~a~%" command)
 				    (uiop:run-program command :output t))))
     (let ((url (second source))
-          (dir (uiop:merge-pathnames* *deps-dir* system-name)))
+          (dir (uiop:merge-pathnames* (format nil "~a/" system-name) *deps-dir*))
+          (git-cmd (if clone "clone" "submodule add -f")))
       (unless (uiop:directory-exists-p dir)
 	(format t "Cloning ~a...~%" system-name)
 	(cond
 	  ((http-get-source-p source)
 	   (run-command (format nil "wget ~a ~a" url dir)))
 	  ((git-clone-source-p source)
-	   (run-command (format nil "git clone ~a ~a" url dir)))
+	   (run-command (format nil "git ~a ~a ~a" git-cmd url dir)))
 	  ((git-clone-tagged-source-p source)
 	   (let ((tag (third source)))
-             (run-command (format nil "git clone ~a#~a ~a" url tag dir))))
+             (run-command (format nil "git ~a ~a#~a ~a" git-cmd url tag dir))))
 	  (t (error (format nil "Unimplemented for source: ~a" source))))))))
 
-(defun clone-dependencies (system systems-alist &key dry-run)
+(defun clone-dependencies (system systems-alist &key clone dry-run)
   "Clones the dependencies of a Quicklisp system"
-  (let ((dependencies (get-dependencies system systems-alist)))
+  (let ((dependencies (cons system (get-dependencies system systems-alist))))
     (loop for system-name in dependencies do
       (setf system-name (string-downcase system-name))
       (clone-dependency system-name
                         (first (fetch-system-quicklisp-source system-name))
+			:clone clone
 			:dry-run dry-run))))
