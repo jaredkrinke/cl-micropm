@@ -1,3 +1,5 @@
+;;;; TODO: Resolution logic probably won't work for local dependencies! Needs a rewrite to look in ASDF and then Quicklisp?
+
 (defpackage micropm
   (:use :cl)
   (:export #:setup))
@@ -49,7 +51,7 @@
 
   ;; Clone the dependencies listed in the system
   (loop for dependency-name in (locate-dependencies system-name) do
-    (clone-dependencies dependency-name *systems-alist* :clone clone :dry-run dry-run)))
+    (clone-dependencies dependency-name :clone clone :dry-run dry-run)))
 
 (defun locate-dependencies (system-name)
   "Locates the dependencies of system-name"
@@ -63,25 +65,19 @@
     (map 'list (lambda (source) (uiop:split-string source :separator " "))
          (uiop:read-file-lines system-source))))
 
-(defun get-deps (system alist)
+(defun get-dependencies-recursive (system-name)
   "Recursively finds all of the dependencies for the system"
-  (let* ((system-name (intern (string-upcase system)))
-         (dependencies
-          (rest (assoc-if (lambda (x) (equal system-name x)) alist))))
+  (let* ((dependencies (rest (assoc system-name *systems-alist* :test 'equal))))
     (if dependencies
-        (let ((list (mapcan (lambda (x) (cons system-name (micropm::get-deps x alist)))
-                            dependencies)))
-          (remove-duplicates list))
+        (let ((list (mapcan (lambda (x) (cons system-name (get-dependencies-recursive x))) dependencies)))
+          (remove-duplicates list :test 'equal))
         (list system-name))))
 
-(defun get-dependencies (system systems-alist)
-  (let ((system-name (intern (string-upcase system))))
-    ;; Filter out ASDF and UIOP since they come bundled with the Common Lisp implementation
-    (loop for x in (get-deps system-name systems-alist)
-          when (not (member-if
-                     (lambda (e) (equal (symbol-name x) e))
-                     `(,(string-upcase system) "UIOP" "ASDF")))
-            collect x)))
+(defun get-dependencies (system-name)
+  ;; Filter out ASDF and UIOP since they come bundled with the Common Lisp implementation
+  (loop for x in (get-dependencies-recursive system-name)
+        when (not (member x (list "asdf" "uiop") :test 'equal))
+          collect x))
 
 (defun get-source-type (source)
   (first source))
@@ -119,11 +115,10 @@
              (run-command (format nil "git ~a ~a#~a ~a" git-cmd url tag dir))))
 	  (t (error (format nil "Unimplemented for source: ~a" source))))))))
 
-(defun clone-dependencies (system systems-alist &key clone dry-run)
+(defun clone-dependencies (system-name &key clone dry-run)
   "Clones the dependencies of a Quicklisp system"
-  (let ((dependencies (cons system (get-dependencies system systems-alist))))
+  (let ((dependencies (get-dependencies system-name)))
     (loop for system-name in dependencies do
-      (setf system-name (string-downcase system-name))
       (clone-dependency system-name
                         (first (fetch-system-quicklisp-source system-name))
 			:clone clone
