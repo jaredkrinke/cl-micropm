@@ -17,30 +17,6 @@
 (defvar *micropm-dir* (uiop:merge-pathnames* "cl-micropm/" *root-dir*))
 (defvar *quicklisp-projects-dir* (uiop:merge-pathnames* "quicklisp-projects/projects/" *micropm-dir*))
 
-(defun setup (system-name &key clone dry-run)
-  "Sets up micropm and the project's dependencies"
-  (ensure-directories-exist *deps-dir*)
-
-  ;; Quicklisp systems index (obtained from systems.txt)
-  (unless (boundp '*systems-alist*)
-    (defvar *systems-alist* (generate-quicklisp-index)))
-
-  ;; Clone the dependencies listed in the system
-  (loop for dependency-name in (locate-dependencies system-name) do
-    (clone-dependencies dependency-name *systems-alist* :clone clone :dry-run dry-run)))
-
-(defun locate-dependencies (system-name)
-  "Locates the dependencies of system-name"
-  (asdf:system-depends-on (asdf:find-system system-name)))
-
-(defun fetch-system-quicklisp-source (system-name)
-  "Fetches the quicklisp source for the given system"
-  (let ((system-source
-          (uiop:merge-pathnames* (format nil "~a/source.txt" (string-downcase system-name))
-                                 *quicklisp-projects-dir*)))
-    (map 'list (lambda (source) (uiop:split-string source :separator " "))
-         (uiop:read-file-lines system-source))))
-
 (defun split-sequence (sequence delimiter)
   "Splits a sequence by delimiter (which is then omitted)"
   (loop for i = 0 then (1+ j)
@@ -63,6 +39,29 @@
           ;; Just get the main system for a project, and its dependencies
           when (and (equal (first x) (second x)) (equal (first x) (third x)))
             collect (cddr x))))
+
+;; Quicklisp systems index (obtained from systems.txt)
+(defvar *systems-alist* (generate-quicklisp-index))
+
+(defun setup (system-name &key clone dry-run)
+  "Sets up micropm and the project's dependencies"
+  (ensure-directories-exist *deps-dir*)
+
+  ;; Clone the dependencies listed in the system
+  (loop for dependency-name in (locate-dependencies system-name) do
+    (clone-dependencies dependency-name *systems-alist* :clone clone :dry-run dry-run)))
+
+(defun locate-dependencies (system-name)
+  "Locates the dependencies of system-name"
+  (asdf:system-depends-on (asdf:find-system system-name)))
+
+(defun fetch-system-quicklisp-source (system-name)
+  "Fetches the quicklisp source for the given system"
+  (let ((system-source
+          (uiop:merge-pathnames* (format nil "~a/source.txt" (string-downcase system-name))
+                                 *quicklisp-projects-dir*)))
+    (map 'list (lambda (source) (uiop:split-string source :separator " "))
+         (uiop:read-file-lines system-source))))
 
 (defun get-deps (system alist)
   "Recursively finds all of the dependencies for the system"
