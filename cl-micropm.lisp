@@ -1,5 +1,3 @@
-;;;; TODO: Resolution logic probably won't work for local dependencies! Needs a rewrite to look in ASDF and then Quicklisp?
-
 (defpackage micropm
   (:use :cl)
   (:export #:setup))
@@ -50,12 +48,7 @@
   (ensure-directories-exist *deps-dir*)
 
   ;; Clone the dependencies listed in the system
-  (loop for dependency-name in (locate-dependencies system-name) do
-    (clone-dependencies dependency-name :clone clone :dry-run dry-run)))
-
-(defun locate-dependencies (system-name)
-  "Locates the dependencies of system-name"
-  (asdf:system-depends-on (asdf:find-system system-name)))
+  (clone-dependencies system-name :clone clone :dry-run dry-run))
 
 (defun fetch-system-quicklisp-source (system-name)
   "Fetches the quicklisp source for the given system"
@@ -65,15 +58,31 @@
     (map 'list (lambda (source) (uiop:split-string source :separator " "))
          (uiop:read-file-lines system-source))))
 
+(defun get-local-system (system-name)
+  "Returns an ASDF system if one exists; otherwise returns NIL"
+  (asdf:find-system system-name nil))
+
+(defun is-local-system (system-name)
+  "Returns non-NIL if the system is known locally to ASDF"
+  (get-local-system system-name))
+
+(defun get-direct-dependencies (system-name)
+  "Returns the direct dependencies of a system (favoring dependencies ASDF already knows about over Quicklisp's dependency index)"
+  (let ((system (get-local-system system-name)))
+    (if system
+	(asdf:system-depends-on system)
+	(rest (assoc system-name *systems-alist* :test 'equal)))))
+
 (defun get-dependencies-recursive (system-name)
-  "Recursively finds all of the dependencies for the system"
-  (let* ((dependencies (rest (assoc system-name *systems-alist* :test 'equal))))
+  "Recursively finds all of the dependencies for the system (favoring dependencies ASDF already knows about over Quicklisp's dependency index)"
+  (let ((dependencies (get-direct-dependencies system-name)))
     (if dependencies
         (let ((list (mapcan (lambda (x) (cons system-name (get-dependencies-recursive x))) dependencies)))
           (remove-duplicates list :test 'equal))
         (list system-name))))
 
 (defun get-dependencies (system-name)
+  "Finds all (transitive) dependencies of a system (favoring dependencies ASDF already knows about over Quicklisp's dependency index), excluding ASDF and UIOP"
   ;; Filter out ASDF and UIOP since they come bundled with the Common Lisp implementation
   (loop for x in (get-dependencies-recursive system-name)
         when (not (member x (list "asdf" "uiop") :test 'equal))
@@ -118,8 +127,9 @@
 (defun clone-dependencies (system-name &key clone dry-run)
   "Clones the dependencies of a Quicklisp system"
   (let ((dependencies (get-dependencies system-name)))
-    (loop for system-name in dependencies do
-      (clone-dependency system-name
-                        (first (fetch-system-quicklisp-source system-name))
-			:clone clone
-			:dry-run dry-run))))
+    (loop for system-name in dependencies
+	  when (not (is-local-system system-name))
+	    do (clone-dependency system-name
+				 (first (fetch-system-quicklisp-source system-name))
+				 :clone clone
+				 :dry-run dry-run))))
