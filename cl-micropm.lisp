@@ -8,14 +8,20 @@
 (defvar *root-dir* (let ((cl-root (uiop:getenv "CL_ROOT")))
 		     (if cl-root
 			 (make-pathname :directory cl-root)
-			 (uiop:merge-pathnames* "../" (uiop:getcwd)))))
+			 (make-pathname :directory '(:relative :up)))))
 
 ;; Store dependencies in "deps/"
-(defvar *deps-dir* (uiop:merge-pathnames* "deps/" *root-dir*))
+(defvar *deps-dir* (uiop:merge-pathnames* (make-pathname :directory '(:relative "deps")) *root-dir*))
 
 ;; Try to find cl-micropm (TODO: actual algorithm)
-(defvar *micropm-dir* (uiop:merge-pathnames* "cl-micropm/" *root-dir*))
-(defvar *quicklisp-projects-dir* (uiop:merge-pathnames* "quicklisp-projects/projects/" *micropm-dir*))
+(defvar *micropm-dir*
+  (uiop:merge-pathnames* (make-pathname :directory '(:relative "cl-micropm"))
+			 *root-dir*))
+
+(defvar *quicklisp-projects-dir*
+  (uiop:merge-pathnames*
+   (make-pathname :directory '(:relative "quicklisp-projects" "projects"))
+   *micropm-dir*))
 
 (defun split-sequence (sequence delimiter)
   "Splits a sequence by delimiter (which is then omitted)"
@@ -53,8 +59,9 @@
 (defun fetch-system-quicklisp-source (system-name)
   "Fetches the quicklisp source for the given system"
   (let ((system-source
-          (uiop:merge-pathnames* (format nil "~a/source.txt" (string-downcase system-name))
-                                 *quicklisp-projects-dir*)))
+          (uiop:merge-pathnames* (make-pathname :directory (list :relative (string-downcase system-name))
+						:name "source.txt")
+				 *quicklisp-projects-dir*)))
     (map 'list (lambda (source) (uiop:split-string source :separator " "))
          (uiop:read-file-lines system-source))))
 
@@ -105,12 +112,13 @@
   (member-if (lambda (x) (equal (get-source-type source) x))
              '("branched-git" "tagged-git")))
 
+;; TODO: Consolidate git "source.txt"
 (defun clone-dependency (system-name source &key clone dry-run)
   (flet ((run-command (command) (if dry-run
 				    (format t "~a~%" command)
 				    (uiop:run-program command :output t))))
     (let ((url (second source))
-          (dir (uiop:merge-pathnames* (format nil "~a/" system-name) *deps-dir*))
+          (dir (uiop:merge-pathnames* (make-pathname :directory (list :relative system-name)) *deps-dir*))
           (git-cmd (if clone "clone" "submodule add -f")))
       (unless (uiop:directory-exists-p dir)
 	(format t "Cloning ~a...~%" system-name)
@@ -118,10 +126,10 @@
 	  ((http-get-source-p source)
 	   (run-command (format nil "wget ~a ~a" url dir)))
 	  ((git-clone-source-p source)
-	   (run-command (format nil "git ~a ~a ~a" git-cmd url dir)))
+	   (run-command (format nil "git ~a --depth 1 ~a ~a" git-cmd url dir)))
 	  ((git-clone-tagged-source-p source)
 	   (let ((tag (third source)))
-             (run-command (format nil "git ~a ~a#~a ~a" git-cmd url tag dir))))
+             (run-command (format nil "git ~a --depth 1 ~a#~a ~a" git-cmd url tag dir))))
 	  (t (error (format nil "Unimplemented for source: ~a" source))))))))
 
 (defun clone-dependencies (system-name &key clone dry-run)
