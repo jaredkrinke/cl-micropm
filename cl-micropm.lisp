@@ -91,9 +91,7 @@
 (defun get-dependencies (system-name)
   "Finds all (transitive) dependencies of a system (favoring dependencies ASDF already knows about over Quicklisp's dependency index), excluding ASDF and UIOP"
   ;; Filter out ASDF and UIOP since they come bundled with the Common Lisp implementation
-  (loop for x in (get-dependencies-recursive system-name)
-        when (not (member x (list "asdf" "uiop") :test 'equal))
-          collect x))
+  (set-difference (get-dependencies-recursive system-name) '("asdf" "uiop") :test 'equal))
 
 (defun get-source-type (source)
   (first source))
