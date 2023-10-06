@@ -23,24 +23,13 @@
    (make-pathname :directory '(:relative "quicklisp-projects" "projects"))
    *micropm-dir*))
 
-(defun split-sequence (sequence delimiter)
-  "Splits a sequence by delimiter (which is then omitted)"
-  (loop for i = 0 then (1+ j)
-	for j = (position delimiter sequence :start i)
-	collect (subseq sequence i j)
-	while j))
-
-(defun split-string-on-spaces (sequence)
-  "Splits a string into words delimited by a single space character"
-  (split-sequence sequence #\Space))
-
 (defun generate-quicklisp-index ()
   "Generates the quicklisp index"
   ;; https://github.com/quicklisp/quicklisp-controller/blob/master/indexes.lisp#L162
   (let* ((systems-path (uiop:merge-pathnames* "systems.txt" *micropm-dir*))
 	 (systems-lines (cdr (uiop:read-file-lines systems-path)))
          (systems (loop for line in systems-lines
-			collect (split-string-on-spaces line))))
+			collect (uiop:split-string line :separator " "))))
     (loop for x in systems
           ;; Just get the main system for a project, and its dependencies
           when (and (equal (first x) (second x)) (equal (first x) (third x)))
