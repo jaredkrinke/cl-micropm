@@ -4,6 +4,12 @@
 
 (in-package :micropm)
 
+(defstruct system
+  project
+  system-file
+  system-name
+  dependencies)
+
 ;; Use CL_ROOT for CL projects root (or parent directory, if not specified)
 (defvar *root-dir* (let ((cl-root (uiop:getenv "CL_ROOT")))
 		     (if cl-root
@@ -31,12 +37,13 @@
          (systems (loop for line in systems-lines
 			collect (uiop:split-string line :separator " "))))
     (loop for x in systems
-          ;; Just get the main system for a project, and its dependencies
-          when (and (equal (first x) (second x)) (equal (first x) (third x)))
-            collect (cddr x))))
+            collect (make-system :project (first x)
+				 :system-file (second x)
+				 :system-name (third x)
+				 :dependencies (cdddr x)))))
 
 ;; Quicklisp systems index (obtained from systems.txt)
-(defvar *systems-alist* (generate-quicklisp-index))
+(defvar *systems* (generate-quicklisp-index))
 
 (defun setup (system-name &key clone dry-run)
   "Sets up micropm and the project's dependencies"
@@ -45,12 +52,16 @@
   ;; Clone the dependencies listed in the system
   (clone-dependencies system-name :clone clone :dry-run dry-run))
 
+(defun get-system (system-name)
+  (find-if (lambda (system) (equal (system-system-name system) system-name)) *systems*))
+
 (defun fetch-system-quicklisp-source (system-name)
   "Fetches the quicklisp source for the given system"
-  (let ((system-source
-          (uiop:merge-pathnames* (make-pathname :directory (list :relative (string-downcase system-name))
-						:name "source.txt")
-				 *quicklisp-projects-dir*)))
+  (let* ((system-project (system-project (get-system system-name)))
+	 (system-source
+           (uiop:merge-pathnames* (make-pathname :directory (list :relative system-project)
+						 :name "source.txt")
+				  *quicklisp-projects-dir*)))
     (map 'list (lambda (source) (uiop:split-string source :separator " "))
          (uiop:read-file-lines system-source))))
 
@@ -67,7 +78,7 @@
   (let ((system (get-local-system system-name)))
     (if system
 	(asdf:system-depends-on system)
-	(rest (assoc system-name *systems-alist* :test 'equal)))))
+	(system-dependencies (get-system system-name)))))
 
 (defun get-dependencies-recursive (system-name)
   "Recursively finds all of the dependencies for the system (favoring dependencies ASDF already knows about over Quicklisp's dependency index)"
