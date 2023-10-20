@@ -99,7 +99,7 @@
 ;; TODO: Always use HTTPS!
 (defun http-get-source-p (source)
   (member-if (lambda (x) (equal (get-source-type source) x))
-             '("http" "https" "single-file")))
+             '("https")))
 
 ;; TODO: Is this encrypted? If not, use an encrypted version!
 (defun git-clone-source-p (source)
