@@ -96,7 +96,6 @@
 (defun get-source-type (source)
   (first source))
 
-;; TODO: Always use HTTPS!
 (defun http-get-source-p (source)
   (member-if (lambda (x) (equal (get-source-type source) x))
              '("https")))
@@ -110,6 +109,9 @@
   (member-if (lambda (x) (equal (get-source-type source) x))
              '("branched-git" "tagged-git")))
 
+(defun ediware-source-p (source)
+  (member (get-source-type source) '("ediware-http") :test 'equal))
+
 ;; TODO: Consolidate git "source.txt"
 (defun clone-dependency (system-name source &key clone dry-run)
   (flet ((run-command (command) (if dry-run
@@ -121,6 +123,8 @@
       (unless (uiop:directory-exists-p dir)
 	(format t "Cloning ~a...~%" system-name)
 	(cond
+	  ((ediware-source-p source)
+	   (run-command (format nil "git ~a --depth 1 https://github.com/edicl/~a.git ~a" git-cmd url dir)))
 	  ((http-get-source-p source)
 	   (run-command (format nil "wget ~a ~a" url dir)))
 	  ((git-clone-source-p source)
