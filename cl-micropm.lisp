@@ -77,7 +77,7 @@
   "Returns the direct dependencies of a system (favoring dependencies ASDF already knows about over Quicklisp's dependency index)"
   (let ((system (get-local-system system-name)))
     (if system
-	(asdf:system-depends-on system)
+	(remove-if-not #'atom (asdf:system-depends-on system))
 	(system-dependencies (get-system system-name)))))
 
 (defun get-dependencies-recursive (system-name)
@@ -126,7 +126,7 @@
 	  ((ediware-source-p source)
 	   (run-command (format nil "git ~a --depth 1 https://github.com/edicl/~a.git ~a" git-cmd url dir)))
 	  ((http-get-source-p source)
-	   (run-command (format nil "wget ~a ~a" url dir)))
+	   (run-command (format nil "curl ~a -o ~a" url dir)))
 	  ((git-clone-source-p source)
 	   (run-command (format nil "git ~a --depth 1 ~a ~a" git-cmd url dir)))
 	  ((git-clone-tagged-source-p source)
